@@ -95,6 +95,10 @@ section h3 {
   gap: 8px;
 }
 
+.participants-list li {
+  list-style: none;
+}
+
 .participant-chip {
   display: inline-flex;
   align-items: center;
