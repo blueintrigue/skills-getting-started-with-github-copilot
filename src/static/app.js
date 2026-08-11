@@ -3,6 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  let activitiesData = {};
 
   function showMessage(message, type) {
     messageDiv.textContent = message;
@@ -14,95 +15,103 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 5000);
   }
 
+  function renderActivities(activities) {
+    activitiesList.innerHTML = "";
+    activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
+
+    Object.entries(activities).forEach(([name, details]) => {
+      const activityCard = document.createElement("div");
+      activityCard.className = "activity-card";
+
+      const participants = Array.isArray(details.participants) ? details.participants : [];
+      const spotsLeft = details.max_participants - participants.length;
+      const participantsMarkup =
+        participants.length > 0
+          ? participants
+              .map(
+                (participant) => `
+                  <li class="participant-chip">
+                    <span class="participant-email">${participant}</span>
+                    <button
+                      class="participant-delete"
+                      type="button"
+                      data-activity="${name}"
+                      data-email="${participant}"
+                      aria-label="Remove ${participant}"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                `
+              )
+              .join("")
+          : '<li class="participant-chip empty">No participants yet</li>';
+
+      activityCard.innerHTML = `
+        <h4>${name}</h4>
+        <p>${details.description}</p>
+        <p><strong>Schedule:</strong> ${details.schedule}</p>
+        <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+        <div class="participants-section">
+          <strong>Participants</strong>
+          <ul class="participants-list">
+            ${participantsMarkup}
+          </ul>
+        </div>
+      `;
+
+      activitiesList.appendChild(activityCard);
+
+      const deleteButtons = activityCard.querySelectorAll(".participant-delete");
+      deleteButtons.forEach((button) => {
+        button.addEventListener("click", async () => {
+          const email = button.dataset.email;
+          const activityName = button.dataset.activity;
+
+          try {
+            const response = await fetch(
+              `/activities/${encodeURIComponent(activityName)}/unregister?email=${encodeURIComponent(email)}`,
+              {
+                method: "DELETE",
+              }
+            );
+
+            const result = await response.json();
+
+            if (response.ok) {
+              const targetActivity = activitiesData[activityName];
+              if (targetActivity) {
+                targetActivity.participants = (targetActivity.participants || []).filter(
+                  (participant) => participant !== email
+                );
+              }
+              renderActivities(activitiesData);
+              showMessage(result.message, "success");
+            } else {
+              showMessage(result.detail || "An error occurred", "error");
+            }
+          } catch (error) {
+            showMessage("Failed to unregister. Please try again.", "error");
+            console.error("Error unregistering participant:", error);
+          }
+        });
+      });
+
+      // Add option to select dropdown
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      activitySelect.appendChild(option);
+    });
+  }
+
   // Function to fetch activities from API
   async function fetchActivities() {
     try {
       const response = await fetch("/activities");
       const activities = await response.json();
-
-      // Clear loading message
-      activitiesList.innerHTML = "";
-      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
-
-      // Populate activities list
-      Object.entries(activities).forEach(([name, details]) => {
-        const activityCard = document.createElement("div");
-        activityCard.className = "activity-card";
-
-        const participants = Array.isArray(details.participants) ? details.participants : [];
-        const spotsLeft = details.max_participants - participants.length;
-        const participantsMarkup =
-          participants.length > 0
-            ? participants
-                .map(
-                  (participant) => `
-                    <li class="participant-chip">
-                      <span class="participant-email">${participant}</span>
-                      <button
-                        class="participant-delete"
-                        type="button"
-                        data-activity="${name}"
-                        data-email="${participant}"
-                        aria-label="Remove ${participant}"
-                      >
-                        ✕
-                      </button>
-                    </li>
-                  `
-                )
-                .join("")
-            : '<li class="participant-chip empty">No participants yet</li>';
-
-        activityCard.innerHTML = `
-          <h4>${name}</h4>
-          <p>${details.description}</p>
-          <p><strong>Schedule:</strong> ${details.schedule}</p>
-          <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
-          <div class="participants-section">
-            <strong>Participants</strong>
-            <ul class="participants-list">
-              ${participantsMarkup}
-            </ul>
-          </div>
-        `;
-
-        activitiesList.appendChild(activityCard);
-
-        const deleteButtons = activityCard.querySelectorAll(".participant-delete");
-        deleteButtons.forEach((button) => {
-          button.addEventListener("click", async () => {
-            const email = button.dataset.email;
-            const activityName = button.dataset.activity;
-
-            try {
-              const response = await fetch(
-                `/activities/${encodeURIComponent(activityName)}/unregister?email=${encodeURIComponent(email)}`,
-                {
-                  method: "DELETE",
-                }
-              );
-
-              const result = await response.json();
-
-              if (response.ok) {
-                showMessage(result.message, "success");
-                await fetchActivities();
-              } else {
-                showMessage(result.detail || "An error occurred", "error");
-              }
-            } catch (error) {
-              showMessage("Failed to unregister. Please try again.", "error");
-              console.error("Error unregistering participant:", error);
-            }
-          });
-        });
-
-        // Add option to select dropdown
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        activitySelect.appendChild(option);
-      });
+      activitiesData = activities;
+      renderActivities(activities);
     } catch (error) {
       activitiesList.innerHTML = "<p>Failed to load activities. Please try again later.</p>";
       console.error("Error fetching activities:", error);
@@ -127,9 +136,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const result = await response.json();
 
       if (response.ok) {
+        const targetActivity = activitiesData[activity];
+        if (targetActivity) {
+          if (!targetActivity.participants.includes(email)) {
+            targetActivity.participants.push(email);
+          }
+        }
+        renderActivities(activitiesData);
         signupForm.reset();
         showMessage(result.message, "success");
-        await fetchActivities();
       } else {
         showMessage(result.detail || "An error occurred", "error");
       }
